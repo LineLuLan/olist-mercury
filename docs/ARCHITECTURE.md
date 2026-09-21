@@ -28,6 +28,7 @@ A source adapter isolates Olist. A later adapter (Chat Order, POS, CRM) can feed
 | D8 | Language boundary (Line, 2026-09-21): Python owns all data work (ingest to publish, ML, simulator, stream processor). TypeScript owns the API and the whole frontend. FastAPI is removed. | The API only reads ClickHouse and Kafka topics, so it needs no Python. One language from the API contract to the browser removes a type-translation layer. The boundary between the two languages is data, not function calls: ClickHouse tables, Kafka topics, and generated schemas (section 9.1). |
 | D9 | Balanced analyst and platform project (Line, 2026-09-21). The project serves a data analyst portfolio and a college DA course. Every phase ships an analyst deliverable (a memo, a model, a dashboard view) next to the engineering deliverable. Dashboards stay coded in the web application; no BI tool. | A DA reviewer judges the question, the SQL, the statistics, the insight, and the recommendation. The platform alone does not show these. Section 8.4 defines the analysis practice. |
 | D10 | The Analytical layer is SQL: dbt Core with the DuckDB adapter builds a star schema and marts from Conformed Parquet. This narrows D1: Python (Polars) does Raw, quality, Conformed, Feature, ML, and streaming; SQL does Analytical. | SQL is the first skill of an analyst, and dbt is the usual analytics-engineering tool: models, tests, documentation, and a lineage graph in one place. dbt Core is Apache 2.0 (getdbt.com, checked 2026-09-21). It is a Python package and adds no service. |
+| D11 | Docker first (Line, 2026-09-21). Every tool runs in a container: services, the Python toolchain, dbt, and the TypeScript workspace. A user needs only Git and Docker. The host needs no Python and no Node. | Every person and the CI get the same versions, the same configuration, and the same commands. "It works on my machine" cannot happen when there is one machine image. Detail: section 10.3. |
 | D6 | Vertical slice first. | Spec v0 S78 and S84 disagree. S84 is correct: prove Raw -> Serving -> API -> Web on one metric, then widen. |
 | D7 | Every analytic promise has a feasibility gate. "Insufficient evidence" is a valid, published result. | Olist cannot support several promises of spec v0 (section 8.1). An honest negative finding is defensible. A forced chart is not. |
 
@@ -491,11 +492,55 @@ The laptop has 15.2 GB usable. Reserve about 6 GB for Windows, WSL2, the editor,
 | `orchestrate` | core + PostgreSQL + Dagster | 3.5-5 GB |
 | `observe` | adds Prometheus (Grafana optional) | +0.5-1 GB |
 
-- Batch stages run on the host with `uv run mercury ...`, or in a `worker` container for a clean-machine proof.
+- Batch stages, dbt, and tests run in the `worker` container (section 10.3). A host run with `uv run mercury ...` still works for a developer who wants it, but it is not the supported path and no document depends on it.
 - Do not run model training and the `stream` profile at the same time.
 - A `full` profile exists for a Linux server with 32 GB or more. It is not for this laptop.
 - `docker compose up` starts `core`. Spec v0 S77 promised every service from one command; this conflicts with S56.
 - All ports bind to `127.0.0.1`. Keep working data and volumes on the WSL2 Linux file system; the Windows mount is slow.
+
+### 10.3 Docker-first environment
+
+The goal: a new person clones the repository, copies one file, and runs the same system with the same configuration. Prerequisites on the host: Git and Docker (Docker Desktop, or Docker Engine in WSL2 or Linux). Nothing else.
+
+**Images (built from the repository, used by laptops and by CI alike).**
+
+| Image | Holds | Used for |
+|---|---|---|
+| `worker` | Python, uv, the locked dependencies from `uv.lock`, dbt, the `mercury` package | Every data command: ingest, quality, conform, `dbt build`, features, training, publish, snapshot export, tests, notebooks (Jupyter on a local port) |
+| `api` | Node, pnpm, the locked workspace | The Hono API; its tests |
+| `web` | Node, pnpm, the locked workspace | The Next.js application; lint, type check, build |
+| Service images | ClickHouse, Kafka, PostgreSQL, MLflow, Dagster, Prometheus: official images | Infrastructure, by profile (section 10.2) |
+
+**One way to run anything.** The `mercury` CLI inside the `worker` image is the task runner, so the host needs no Make and no Python:
+
+```text
+cp .env.example .env
+docker compose up -d                                   # core profile
+docker compose run --rm worker mercury run all          # raw files -> serving tables
+docker compose run --rm worker mercury test             # Python + dbt tests
+docker compose --profile stream up -d                   # add Kafka, simulator, processor
+```
+
+A `Makefile` gives short names for the same commands on Linux and WSL2. It adds nothing of its own.
+
+**Same configuration for everyone.**
+
+- All configuration is in the repository: `docker-compose.yml`, `infra/<service>/` config files (mounted read-only), and `.env.example` with every variable, a safe default, and a comment. `.env` is local and ignored by git.
+- Versions are pinned at three levels: base images by digest, Python packages by `uv.lock`, Node packages by `pnpm-lock.yaml` with the package manager version fixed in `package.json`. Builds use the frozen-lockfile mode and fail when a lock file is out of date.
+- Memory caps per service are in the Compose file (section 10.2), so the RAM budget is the same on every machine.
+- Secrets never enter an image. The Kaggle token reaches the `worker` container as a mounted file or an environment variable at run time.
+- Containers run as a non-root user. All ports bind to `127.0.0.1`.
+- A Dev Container definition (`.devcontainer/`) lets an editor open inside the `worker` or the Node image, so the language server, the linter, and the formatter also use the pinned versions. It is optional; the open specification has no cost.
+
+**State and performance.**
+
+- State lives in named volumes: ClickHouse, Kafka, PostgreSQL, MLflow artifacts, and the data lake `data/`. `docker compose down` keeps them. `docker compose down -v` is the full reset, and `mercury run all` rebuilds everything from the raw files.
+- Dependencies (`.venv`, `node_modules`) live inside the images or in named volumes, never in a bind mount. On Windows, bind mounts from a Windows drive are slow and do not deliver file-change events; source code is the only bind mount, and the dev servers use polling for reload (to verify in P1). A clone inside the WSL2 file system avoids both limits and is the recommended place on Windows.
+- Health checks and `depends_on: condition: service_healthy` order the start: the API waits for ClickHouse, the processor waits for Kafka.
+
+**Proof that it is the same for everyone.** CI builds the same images and runs the vertical slice in them on synthetic fixtures. `docker compose config` is validated in CI for every profile. The Phase 8 clean-machine test starts from a fresh clone on a machine with only Git and Docker.
+
+**What Docker does not cover.** The Vercel deploy builds from the repository on Vercel's side; the snapshot files it serves are produced by the `worker` container. Docker itself must be installed by hand, and Docker Desktop has license conditions for large companies (`docs/LICENSE_REGISTER.md`).
 
 ## 11. Repository layout
 
@@ -521,7 +566,9 @@ olist-mercury/
   analysis/               one folder per case study: SQL, notebook, chart-data export script
   contracts/              generated JSON Schema, metrics.yaml, features.yaml
   orchestration/dagster/  Phase 7
-  infra/                  compose files, ClickHouse and Kafka config, Prometheus
+  infra/                  Dockerfiles (worker, api, web), per-service config, Prometheus
+  .devcontainer/          optional editor-in-container definition
+  .env.example            every variable with a safe default and a comment
   tests/
     unit/  data/  contract/  integration/  recovery/  fixtures/ (synthetic only)
   docs/                   MASTER_PLAN.md, ARCHITECTURE.md, decisions/, source/
@@ -544,6 +591,17 @@ Spec v0 S67 had loose top-level folders (`analytics/`, `mining/`, `ml/`, `pipeli
 **Security.** No secrets in git; `.env` local and `.env.example` in the repository; GitHub Secrets in CI. Input validation at the API. CORS allows only the known web origins. Databases have no public port. Models load only from the project registry. A secret scan runs in CI.
 
 **Logging and observability.** Structured JSON logs from Phase 0 with `run_id`, stage, and counts. Prometheus in Phase 8: API latency and errors, consumer lag, window lateness, stage duration, data freshness, quality failures, inference latency. Grafana is optional (AGPLv3; acceptable for this use).
+
+**Maintainability.** These rules keep the system cheap to change for one developer.
+
+- Dependency direction: a stage imports only from stages before it. `apps/` never imports Python; `src/mercury` never reads `apps/`. An import-rule check in CI enforces this.
+- Schema changes: `serving` tables are rebuilt from code on every publish, so their DDL in `mercury.serving` is the schema; no migration exists for them. `rt` tables and PostgreSQL hold state, so they change only through numbered, forward-only migration files with a recorded rollback note.
+- Both web data modes are tested: the CI web build runs in `snapshot` mode against a fixture snapshot, and the integration job runs `live`. A page that fails in one mode fails the build.
+- Memos do not rot silently: each case exports its headline numbers to `analysis/<id>/expected.json`. A `mercury check-memos` command reruns the queries and fails when a published number moved outside its stated tolerance. The memo then gets a revision note, not a silent edit.
+- Dependencies: lock files for both languages (`uv.lock`, `pnpm-lock.yaml`), container images pinned by digest, and a monthly update pass in one branch with the full test suite. Major upgrades of dbt, ClickHouse, Kafka, and Next.js are separate tasks that start from the current upgrade guide.
+- Decisions: each change to a decision in section 2 gets one short record in `docs/decisions/NNNN-title.md` (context, decision, consequence). The tables in this file and in the master plan are then updated in the same change.
+- Service count is a budget: a new long-running service needs a named problem, a RAM number, and an entry in section 10.1. The default answer is no.
+- Every module has one owner document: this file for design, `contracts/` for definitions, dbt docs for the SQL model. Nothing is defined in two documents.
 
 **Licensing.** `docs/LICENSE_REGISTER.md` lists each dataset and major dependency with license, source link, and check date. The Olist data is CC BY-NC-SA 4.0 (Kaggle page; Line confirms on the page in Phase 0). Raw data never enters git; `scripts/download_olist.py` fetches it with the user's own Kaggle token. The project stays non-commercial while it uses this dataset.
 

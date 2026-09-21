@@ -1,0 +1,8 @@
+# One line-ending rule for every machine. Linux containers need LF (a CRLF shell script fails to run).
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.parquet binary
+*.woff2 binary

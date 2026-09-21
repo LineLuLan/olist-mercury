@@ -27,6 +27,8 @@ The project answers four levels of question: what happened, why, what will happe
 | 9 | **ClickHouse is the serving store.** PostgreSQL enters with MLflow in Phase 4. |
 | 10 | **UI direction: operations console.** shadcn/ui (Radix + Tailwind), no bought admin template. Detail: architecture 9.2. |
 | 11 | **No calendar dates and no time pressure.** Progress is measured by phase exit tests. Effort numbers are estimates for ordering, not promises. |
+| 13 | **Docker first.** Every tool runs in a container, including the Python toolchain, dbt, and the TypeScript workspace. A user needs only Git and Docker. Versions are pinned by image digest and lock files; all configuration is in the repository. Detail: architecture 10.3. |
+| 14 | **Free software only.** Every component is open source and self-hosted. Conditions and check dates are in `docs/LICENSE_REGISTER.md`. |
 | 12 | **Non-commercial.** The dataset is CC BY-NC-SA 4.0 and Vercel Hobby is non-commercial. Raw data never enters git. |
 
 Python and TypeScript never call each other. They meet at ClickHouse tables, Kafka topics, and generated schemas.
@@ -88,7 +90,7 @@ Each phase ends with a working, demonstrable state. "Done when" is the exit test
 
 | Phase | Engineering deliverable | Analyst deliverable | Done when |
 |---|---|---|---|
-| **P0 Foundation and profiling** | Repository, uv + pnpm, lint, types, tests, CI, download script, raw ingest, license register | Business frame, KPI tree, EDA and profile report, memo template, review checklist, statistical standards | The profile report gives every number marked "to verify" in the architecture file. The feasibility gates are frozen. The time-zone assumption has a decision. |
+| **P0 Foundation and profiling** | Repository, `worker` image and Compose file, `.env.example`, uv + pnpm, lint, types, tests, CI that runs inside the same image, download script, raw ingest | Business frame, KPI tree, EDA and profile report, memo template, review checklist, statistical standards | The profile report gives every number marked "to verify" in the architecture file. The feasibility gates are frozen. The time-zone assumption has a decision. |
 | **P1 Vertical slice** | orders + items + payments: Raw -> quality -> Conformed -> dbt core models -> ClickHouse -> TS API -> Overview page -> snapshot export | `fct_orders`, `fct_order_items`, `dim_date`, `dim_customer` with tests and docs; KPI tree on the Overview page; **memo M0** | `gmv_items` reconciles with the raw files. `dbt build` is green. A rerun changes nothing. A clean clone runs with documented commands. **Line deploys to Vercel.** |
 | **P2 Analytical breadth** | Full star schema and marts; Customers, Products, Sellers and Logistics, Satisfaction, Data Quality, Insights pages | **Memos M1-M5**; dbt documentation and lineage graph published | Relationship and cardinality tests pass for every model. Every metric on screen has a dictionary entry and an evidence card. Each memo passes the review checklist and matches a fresh rerun. |
 | **P3 Data mining** | RFM, segmentation, association rules, batch anomaly detection | **Memos M6-M7** (why customers do not return; segments with sized actions) | Each module shows its gate result. Segments are stable across seeds. Anomaly detection finds injected spikes at a stated alert rate. |
@@ -103,6 +105,32 @@ Each phase ends with a working, demonstrable state. "Done when" is the exit test
 Structured logs and tests start in P0, not in P8.
 
 Effort in focused days (estimate, to re-measure after P1; the analyst work is included): P0 3-4, P1 5-7, P2 9-12, P3 6-8, P4 7-9 (v1.0 total 30-40), P5 6-8, P6 8-10, P7 3-4, P8 5-6, P9 5-7. P6 can move in front of P5 when an early real-time demo matters more; only the live prediction card depends on P5.
+
+## 4.1 Team handoff after the MVP (Line, 2026-09-21)
+
+One owner builds the MVP (P0-P4). The team joins after v1.0. Reason: the seams between modules (contracts, star schema, API types) must be proven by one mind before several people build against them. A split before that point multiplies rework.
+
+Workstreams after v1.0. Each one owns disjoint paths, so two people never edit the same files:
+
+| Workstream | Owns | Meets the others at |
+|---|---|---|
+| Data pipeline | `src/mercury/{ingest,quality,conform,serving}`, `contracts/` | Conformed Parquet schemas, serving table schemas |
+| Analytics SQL | `dbt/` | dbt sources (input), mart schemas (output), `contracts/metrics.yaml` |
+| Analysis and memos | `analysis/`, memo content in `apps/web` | Star schema (read only), chart-data JSON |
+| ML | `src/mercury/{features,mining,ml}` | `contracts/features.yaml`, prediction tables |
+| API | `apps/api`, `packages/contracts` | Serving tables (read only), Zod schemas |
+| Web | `apps/web` | Zod schemas, the `DataSource` interface |
+| Platform (P6-P8) | `src/mercury/streaming`, `orchestration/`, `infra/` | Event contracts, Compose profiles |
+
+What v1.0 must contain so that a team can start in one day:
+
+- `CONTRIBUTING.md`: the Docker commands, branch and pull-request rules, commit style, the review checklist for code and the one for memos.
+- `AGENTS.md` at the repository root: the same rules for AI coding agents, with the path ownership above.
+- `CODEOWNERS`, a pull-request template, issue labels per workstream, and branch protection on `main` (Line sets it on GitHub).
+- A change to anything in `contracts/` or `packages/contracts` needs a review from both sides of that seam.
+- Decision records in `docs/decisions/`, so a new person learns why, not only what.
+- A starter backlog: P5-P9 cut into issues, each with files, an exit test, and a size.
+- Green CI and the clean-clone test: a new person runs the whole system with Git and Docker only.
 
 ## 5. Working method
 

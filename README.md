@@ -98,12 +98,17 @@ Each phase ships an engineering deliverable and an analyst deliverable.
 
 Each phase has an exit test in the master plan. Setup and run instructions arrive with Phase 0 and Phase 1.
 
+## Running it (target)
+
+The only prerequisites will be **Git and Docker**. Python, dbt, Node, and every service run in containers with pinned versions, so every person and the CI get the same setup from the same files. All software is free and open source; see `docs/LICENSE_REGISTER.md` for the few items that are free with conditions.
+
 ## Documents
 
 | File | Read it for |
 |---|---|
 | `docs/MASTER_PLAN.md` | Decisions, the analyst track, phases with exit tests, risks |
 | `docs/ARCHITECTURE.md` | The full design: data products, star schema, analysis practice (section 8.4), contracts, real-time path, ML rules, runtime |
+| `docs/LICENSE_REGISTER.md` | Every component with its license, the free-with-conditions items, and the check dates |
 | `docs/source/PROJECT_SPEC_v0.md` | The original specification, kept as written |
 | `docs/source/ASTRA_ANALYSIS.md` | The independent second review of that specification |
 
