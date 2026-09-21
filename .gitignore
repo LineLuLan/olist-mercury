@@ -1,0 +1,51 @@
+# Data lake: never in git (dataset license CC BY-NC-SA 4.0; see docs/ARCHITECTURE.md section 12)
+/data/
+*.parquet
+*.duckdb
+*.duckdb.wal
+
+# Secrets
+.env
+.env.*
+!.env.example
+kaggle.json
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+*.egg-info/
+dist/
+build/
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# MLflow and Dagster local state
+mlruns/
+mlartifacts/
+.dagster/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# Tools and OS
+.codegraph/
+.handoff/
+.claude/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
